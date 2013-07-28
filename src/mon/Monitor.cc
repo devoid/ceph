@@ -1878,6 +1878,40 @@ struct MonCommand {
 #include <mon/MonCommands.h>
 };
 
+bool Monitor::_allowed_command(MonSession *s, string &prefix,
+                               map<string,cmd_vartype>& cmdmap) {
+
+  map<string,string> strmap;
+  for (map<string,cmd_vartype>::const_iterator p = cmdmap.begin();
+       p != cmdmap.end(); ++p) {
+    if (p->first == "prefix")
+      continue;
+    strmap[p->first] = cmd_vartype_stringify(p->second);
+  }
+
+  MonCommand *this_cmd = NULL;
+  for (MonCommand *cp = mon_commands;
+       cp < &mon_commands[ARRAY_SIZE(mon_commands)]; cp++) {
+    dout(0) << __func__ << " CAPSBAR >> matching against " << cp->cmdstring << dendl;
+    if (cp->cmdstring.find(prefix) != string::npos) {
+      this_cmd = cp;
+      break;
+    }
+  }
+  assert(this_cmd != NULL);
+  bool cmd_r = (this_cmd->req_perms.find('r') != string::npos);
+  bool cmd_w = (this_cmd->req_perms.find('w') != string::npos);
+  bool cmd_x = (this_cmd->req_perms.find('x') != string::npos);
+
+  bool capable = s->caps.is_capable(g_ceph_context, s->inst.name,
+                                    "mon", prefix, strmap,
+                                    cmd_r, cmd_w, cmd_x);
+
+  dout(10) << __func__ << " " << (capable ? "" : "not ") << "capable" << dendl;
+  return capable;
+}
+
+
 void Monitor::handle_command(MMonCommand *m)
 {
   if (m->fsid != monmap->fsid) {
@@ -1964,44 +1998,11 @@ void Monitor::handle_command(MMonCommand *m)
   access_r = (session->is_capable("mon", MON_CAP_R) || access_cmd);
   access_all = (session->caps.is_allow_all() || access_cmd);
 
-  {
-  dout(0) << __func__ << " CAPSFOO >> cmdmap = " << m->cmd << dendl;
-  dout(0) << __func__ << " CAPSFOO >>    vec = " << fullcmd << dendl;
-
-  map<string,string> strmap;
-  for (map<string,cmd_vartype>::const_iterator p = cmdmap.begin();
-       p != cmdmap.end(); ++p) {
-    if (p->first == "prefix")
-      continue;
-    strmap[p->first] = cmd_vartype_stringify(p->second);
+  if (!_allowed_command(session, prefix, cmdmap)) {
+    dout(1) << __func__ << " access denied" << dendl;
+    reply_command(m, -EACCES, "access denied", 0);
   }
 
-  MonCommand *this_cmd = NULL;
-  for (MonCommand *cp = mon_commands;
-       cp < &mon_commands[ARRAY_SIZE(mon_commands)]; cp++) {
-    dout(0) << __func__ << " CAPSBAR >> matching against " << cp->cmdstring << dendl;
-    if (cp->cmdstring.find(prefix) != string::npos) {
-      this_cmd = cp;
-      break;
-    }
-  }
-  if (!this_cmd) {
-    dout(0) << __func__ << " CAPSBAR >> unknown command " << prefix << dendl;
-  }
-  else {
-  bool cmd_r = (this_cmd->req_perms.find('r') != string::npos);
-  bool cmd_w = (this_cmd->req_perms.find('w') != string::npos);
-  bool cmd_x = (this_cmd->req_perms.find('x') != string::npos);
-
-  dout(0) << __func__ << " CAPSBAR >> r: " << cmd_r << " w: " << cmd_w << " x: " << cmd_x << dendl;
-
-  if (session->caps.is_capable(g_ceph_context, session->inst.name, "mon", prefix, strmap, cmd_r, cmd_w, cmd_x))
-    dout(0) << __func__ << " CAPSFOO >> is_capable!" << dendl;
-  else
-    dout(0) << __func__ << " CAPSFOO >> not is_capable!" << dendl;
-
-  }
-  }
   if (module == "mds") {
     mdsmon()->dispatch(m);
     return;

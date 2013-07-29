@@ -5921,9 +5921,17 @@ int ReplicatedPG::build_push_op(const ObjectRecoveryInfo &recovery_info,
     osd->store->getattrs(coll, recovery_info.soid, out_op->attrset);
 
     // Debug
+    if (!out_op->attrset.count(OI_ATTR))
+      return -EINVAL;
+
     bufferlist bv;
     bv.push_back(out_op->attrset[OI_ATTR]);
-    object_info_t oi(bv);
+    object_info_t oi;
+    try {
+      oi.decode(bv);
+    } catch (const buffer::error& e) {
+      return -EINVAL;
+    }
 
     if (oi.version != recovery_info.version) {
       osd->clog.error() << info.pgid << " push "

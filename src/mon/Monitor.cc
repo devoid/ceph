@@ -1878,7 +1878,7 @@ struct MonCommand {
 #include <mon/MonCommands.h>
 };
 
-bool Monitor::_allowed_command(MonSession *s, string &prefix,
+bool Monitor::_allowed_command(MonSession *s, string &module, string &prefix,
                                map<string,cmd_vartype>& cmdmap) {
 
   map<string,string> strmap;
@@ -1904,7 +1904,7 @@ bool Monitor::_allowed_command(MonSession *s, string &prefix,
   bool cmd_x = (this_cmd->req_perms.find('x') != string::npos);
 
   bool capable = s->caps.is_capable(g_ceph_context, s->inst.name,
-                                    "mon", prefix, strmap,
+                                    module, prefix, strmap,
                                     cmd_r, cmd_w, cmd_x);
 
   dout(10) << __func__ << " " << (capable ? "" : "not ") << "capable" << dendl;
@@ -1990,7 +1990,7 @@ void Monitor::handle_command(MMonCommand *m)
   get_str_vec(prefix, fullcmd);
   module = fullcmd[0];
 
-  if (!_allowed_command(session, prefix, cmdmap)) {
+  if (!_allowed_command(session, module, prefix, cmdmap)) {
     dout(1) << __func__ << " access denied" << dendl;
     reply_command(m, -EACCES, "access denied", 0);
     return;
